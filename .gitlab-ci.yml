@@ -1,0 +1,7 @@
+stages:
+  - test
+
+dummy-job:
+  stage: test
+  script:
+    - echo "CI/CD работает! Пока нет кода для сборки/тестов."
