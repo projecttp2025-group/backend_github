@@ -37,6 +37,87 @@ poetry run python -m app.main
 ```
 
 ---
+## API — Swagger UI / OpenAPI
+
+**Ссылки (локально):**
+- Swagger UI: `http://localhost:8000/docs`
+
+**Базовый префикс API:** `/api/v1`
+
+### Авторизация в Swagger UI (Bearer JWT)
+
+1) Пройди флоу: `request-code` → `verify-code` → `set-password` → `login`.  
+2) Возьми **access token** из ответа `login`.  
+3) В Swagger нажми **Authorize** → введи `Bearer <access_token>` → **Authorize**.  
+4) Дальше защищённые эндпоинты вызываются с заголовком `Authorization: Bearer <access_token>`.
+
+---
+
+### Эндпоинты (как в Swagger UI)
+
+#### `health`
+| Метод | Путь                                    | Описание                            |
+|------:|-----------------------------------------|-------------------------------------|
+| GET   | `/api/v1/health`                        | Health                              |
+| GET   | `/api/v1/health/db`                     | Db Health                           |
+| GET   | `/api/v1/health/db/auth/email_codes`    | Check Auth (email codes)            |
+| GET   | `/api/v1/health/db/auth/refresh_tokens` | Check Auth (refresh tokens)         |
+| GET   | `/api/v1/health/db/auth/users`          | Check Auth (users)                  |
+| GET   | `/api/v1/health/readiness`              | Readiness                           |
+
+#### `auth`
+| Метод | Путь                   | Описание                                      |
+|------:|------------------------|-----------------------------------------------|
+| POST  | `/api/v1/request-code` | Отправить код на email                        |
+| POST  | `/api/v1/verify-code`  | Проверить код из email                        |
+| POST  | `/api/v1/set-password` | Установить пароль и получить JWT              |
+| POST  | `/api/v1/login`        | Вход (email + password) → access/refresh      |
+| POST  | `/api/v1/refresh`      | Обновить access/refresh по refresh            |
+| POST  | `/api/v1/logout`       | Logout (отозвать refresh-токен)               |
+
+#### `expenses`
+| Метод | Путь                    | Описание                       |
+|------:|-------------------------|--------------------------------|
+| GET   | `/api/v1/expenses`      | Get Expenses                   |
+| POST  | `/api/v1/expenses`      | Create Expense                 |
+| GET   | `/api/v1/expenses/{id}` | Get Expense By Id              |
+| PATCH | `/api/v1/expenses/{id}` | Update Expense (partial)       |
+| DELETE| `/api/v1/expenses/{id}` | Delete Expense                 |
+
+#### `receipts`
+| Метод | Путь               | Описание    |
+|------:|--------------------|-------------|
+| POST  | `/api/v1/receipts` | Add Receipt |
+
+#### `analytics`
+| Метод | Путь                            | Описание                     |
+|------:|---------------------------------|------------------------------|
+| GET   | `/api/v1/analytics/timeseries`  | Get Timeseries               |
+| GET   | `/api/v1/analytics/by-category` | Get Timeseries By Category   |
+
+#### `categories`
+| Метод | Путь                 | Описание      |
+|------:|----------------------|---------------|
+| GET   | `/api/v1/categories` | Get Statistic |
+
+#### `advice`
+| Метод | Путь            | Описание       |
+|------:|-----------------|----------------|
+| GET   | `/api/v1/advice`| Get Timeseries |
+
+#### `root`
+| Метод | Путь | Описание |
+|------:|------|----------|
+| GET   | `/`  | Root     |
+
+---
+
+### Pydantic-схемы (раздел **Schemas** в Swagger)
+`CodeVerifyIn`, `CodeVerifyOut`, `EmailIn`, `HTTPValidationError`, `LoginIn`, `LogoutIn`, `RefreshIn`, `RequestCodeOut`, `SetPasswordIn`, `TokensOut`, `ValidationError`.
+
+
+
+---
 
 ## Минимальная модель данных (MVP)
 
