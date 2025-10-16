@@ -20,4 +20,7 @@ class Settings(BaseSettings):
     access_token_expire_min: int = 30
     refresh_token_expire_days: int = 14
 
+    smtp_login : str
+    smtp_password : str
+
 settings = Settings()

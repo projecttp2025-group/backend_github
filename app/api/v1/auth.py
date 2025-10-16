@@ -14,6 +14,7 @@ from app.schemas.auth import (
     LogoutIn
 )
 from app.utils.security import hash_code, hash_password, verify_password, sha256
+from app.utils.mail_sender import send_code
 
 router = APIRouter()
 logger = logging.getLogger("app.auth")
@@ -101,6 +102,10 @@ def request_code(body: EmailIn):
         """, (email, code_h, expires))
 
     logger.info(f"[DEV] send code {code} to {email}")
+    try:
+        send_code(to_email=email, code=str(code))
+    except Exception as e:
+        logger.error(f"Problems with sending the code: {e}")
     return RequestCodeOut()
 
 

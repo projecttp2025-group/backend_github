@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter
 
 router = APIRouter()
-logger = logging.getLogger("app.health")
+logger = logging.getLogger("app.analytics")
 
 
 @router.get("/analytics/timeseries")
