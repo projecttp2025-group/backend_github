@@ -15,7 +15,7 @@ LOGGING_CONFIG = {
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
         "access": {
-            "format": '{asctime} | {levelname:<8} | access | {message}',
+            "format": "{asctime} | {levelname:<8} | access | {message}",
             "style": "{",
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
@@ -51,21 +51,19 @@ LOGGING_CONFIG = {
             "level": "DEBUG",
             "propagate": False,
         },
-
         "uvicorn": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "uvicorn.error": {"level": "WARNING", "handlers": ["console"], "propagate": False},
-
         "uvicorn.access": {"level": "INFO", "handlers": ["file_access"], "propagate": False},
-
         "asyncio": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "passlib": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "sqlalchemy": {"level": "WARNING", "handlers": ["console"], "propagate": False},
     },
-    "root": {  
+    "root": {
         "level": "WARNING",
         "handlers": ["console"],
     },
 }
+
 
 def setup_logging():
     dictConfig(LOGGING_CONFIG)
