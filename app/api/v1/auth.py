@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.core.config import settings
 from app.core.jwt import auth
@@ -211,15 +211,25 @@ def set_password(body: SetPasswordIn):
             """,
             (email, pwd_hash),
         )
+        user_id = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            INSERT INTO main.accounts (user_id, name, currency, created_at)
+            VALUES(%s, %s, 0.0, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (user_id, email, datetime.now(timezone.utc))
+        )
 
         logger.info("New user was added")
-        user_id = int(cur.fetchone()[0])
+        #user_id = int(cur.fetchone()[0])
 
-    return _issue_pair_and_store(email=email, user_id=user_id)
+    return _issue_pair_and_store(email=email, user_id=int(user_id))
 
 
 @router.post("/login", response_model=TokensOut, summary="Sign in with email and password")
-def login(body: LoginIn):
+def login(body: LoginIn, response : Response):
     email = body.email.lower()
     logger.info(f"User with email: {email} is signing in")
 
@@ -237,13 +247,12 @@ def login(body: LoginIn):
         user_id, pwd_hash = int(row[0]), row[1]
         if not verify_password(body.password.get_secret_value(), pwd_hash):
             raise HTTPException(401, "Incorrect credentials")
+    tokens_pair : TokensOut = _issue_pair_and_store(email=email, user_id=user_id)
+    response.set_cookie(auth.config.JWT_ACCESS_COOKIE_NAME, tokens_pair.access_token)
+    return tokens_pair
 
-    return _issue_pair_and_store(email=email, user_id=user_id)
 
-
-@router.post(
-    "/refresh", response_model=TokensOut, summary="Update access/refresh tokens with refresh"
-)
+@router.post("/refresh", response_model=TokensOut, summary="Update jwt tokens with refresh")
 def refresh_tokens(payload: RefreshIn):
     data = _decode_refresh_or_401(payload.refresh_token)
     email: str = data["sub"]

@@ -9,10 +9,10 @@ config = AuthXConfig(
     JWT_ALGORITHM=settings.jwt_alg,
     JWT_ACCESS_TOKEN_EXPIRES=timedelta(minutes=settings.access_token_expire_min),
     JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=settings.refresh_token_expire_days),
-    JWT_TOKEN_LOCATION=["headers"],
-    JWT_HEADER_NAME="Authorization",
-    JWT_HEADER_TYPE="Bearer",
-    JWT_COOKIE_SECURE=False,
+    JWT_ACCESS_COOKIE_NAME=settings.access_token_cookie_name,
+    JWT_COOKIE_CSRF_PROTECT=False,
+    JWT_TOKEN_LOCATION=["cookies"],
+    JWT_COOKIE_SECURE=True,
 )
 
 auth = AuthX(config=config)

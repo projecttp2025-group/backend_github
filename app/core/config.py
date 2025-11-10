@@ -13,9 +13,10 @@ class Settings(BaseSettings):
     db_name: str
     db_port: str
 
-    jwt_secret: str = "dev_change_me"
+    jwt_secret: str = "dev_tp_proj"
     jwt_alg: str = "HS256"
     access_token_expire_min: int = 30
+    access_token_cookie_name: str = "dev-access-cookie-name"
     refresh_token_expire_days: int = 14
 
     smtp_login: str
