@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     db_password: str
     db_name: str
     db_port: str
+    database_url: str
 
     jwt_secret: str = "dev_tp_proj"
     jwt_alg: str = "HS256"
