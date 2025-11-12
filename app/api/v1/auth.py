@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.jwt import auth
-from app.db.psycopg import get_connection
 from app.schemas.auth import (
     CodeVerifyIn,
     CodeVerifyOut,
@@ -31,16 +30,11 @@ logger = logging.getLogger("app.auth")
 
 
 ### HELPER FUNCTIONS
-def _store_refresh(user_id: int, refresh_token: str, jti: str, exp_utc: datetime) -> None:
+def _store_refresh(user_id: int, refresh_token: str, jti: str, exp_utc: datetime, db: Session) -> None:
     logger.debug(f"Refresh token for {user_id} was stored in DB")
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO main.refresh_tokens (user_id, token_hash, jti, expires_at)
-            VALUES (%s, %s, %s, %s)
-        """,
-            (user_id, sha256(refresh_token), jti, exp_utc),
-        )
+    refresh_token_object = RefreshToken(user_id=user_id, token_hash=sha256(refresh_token), jti=jti, expires_at=exp_utc)
+    db.add(refresh_token_object)
+    db.commit()
 
 
 def _decode_refresh_or_401(refresh_token: str) -> dict:
@@ -60,13 +54,15 @@ def _decode_refresh_or_401(refresh_token: str) -> dict:
     return payload
 
 
-def _revoke_refresh_by_jti(jti: str) -> None:
+def _revoke_refresh_by_jti(jti: str, db: Session) -> None:
     logger.debug(f"Revoke the refresh token with jti: {jti}")
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE main.refresh_tokens SET revoked = TRUE WHERE jti = %s", (jti,))
+    token_object = db.query(RefreshToken).filter(RefreshToken.jti == jti).first()
+    token_object.revoked = True
+    db.commit()
+    db.refresh(token_object)
 
 
-def _issue_pair_and_store(email: str, user_id: int) -> TokensOut:
+def _issue_pair_and_store(email: str, user_id: int, db: Session) -> TokensOut:
     """
     Generate the pair of access/refresh tokens and save refresh-token in DB (hash + jti + expiry)
     """
@@ -76,31 +72,25 @@ def _issue_pair_and_store(email: str, user_id: int) -> TokensOut:
     refresh_token = auth.create_refresh_token(uid=email, data={"jti": jti})
 
     exp_utc = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-    _store_refresh(user_id=user_id, refresh_token=refresh_token, jti=jti, exp_utc=exp_utc)
+    _store_refresh(user_id=user_id, refresh_token=refresh_token, jti=jti, exp_utc=exp_utc, db=db)
 
     logger.info("Pair (access/refresh) tokens was generated successful")
     return TokensOut(access_token=access_token, refresh_token=refresh_token)
 
 
-def _is_refresh_active(email: str, refresh_token: str, jti: str) -> tuple[bool, int | None]:
+def _is_refresh_active(email: str, refresh_token: str, jti: str, db: Session) -> tuple[bool, int | None]:
     logger.debug(f"Checking the activeness of refresh token for {email}")
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT u.id, (NOT rt.revoked) AND (rt.expires_at > now()) AS active
-            FROM main.refresh_tokens rt
-            JOIN main.users u ON u.id = rt.user_id
-            WHERE u.email = %s
-              AND rt.jti = %s
-              AND rt.token_hash = %s
-        """,
-            (email, jti, sha256(refresh_token)),
-        )
-        row = cur.fetchone()
-        if not row:
-            return (False, None)
-        user_id, active = int(row[0]), bool(row[1])
-        return (active, user_id if active else None)
+    refresh_token_object = db.query(RefreshToken).join(User, User.id == RefreshToken.user_id).filter(
+        User.email == email, RefreshToken.token_hash == sha256(refresh_token), RefreshToken.jti == jti).first()
+    
+    if not refresh_token_object:
+        return (False, None)
+    
+    active = False
+    if not refresh_token_object.revoked and refresh_token_object.expires_at > datetime.now():
+        active = True
+
+    return (active, refresh_token_object.user_id if active else None)
 
 
 ### ENDPOINTS
@@ -174,81 +164,67 @@ def verify_code(body: CodeVerifyIn, db: Session = Depends(get_db)):
 
 
 @router.post("/set-password", response_model=TokensOut, summary="Set password and get JWT")
-def set_password(body: SetPasswordIn):
+def set_password(body: SetPasswordIn, db: Session = Depends(get_db)):
     email = body.email.lower()
     logger.debug(f"Set password for {email}")
+        
+    email_code = db.query(EmailCode).filter(EmailCode.email == email).first()
 
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT verified_at FROM main.email_codes WHERE email = %s AND used = TRUE", (email,)
-        )
-        row = cur.fetchone()
+    if email_code is None:
+        logger.exception("At first verify email by code")
+        raise HTTPException(400, "At first verify email by code")
 
-        if not row or row[0] is None:
-            logger.exception("At first verify email by code")
-            raise HTTPException(400, "At first verify email by code")
+    if email_code.verified_at.tzinfo is None:
+        verified_at = verified_at.replace(tzinfo=timezone.utc)
 
-        verified_at = row[0]
-        if verified_at.tzinfo is None:
-            verified_at = verified_at.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - email_code.verified_at) > timedelta(minutes=5):
+        logger.exception("Time to set password expired")
+        raise HTTPException(400, "Time to set password expired")
 
-        if (datetime.now(timezone.utc) - verified_at) > timedelta(minutes=5):
-            logger.exception("Time to set password expired")
-            raise HTTPException(400, "Time to set password expired")
+    pwd_hash = hash_password(body.password.get_secret_value())
 
-        pwd_hash = hash_password(body.password.get_secret_value())
+    user_from_db = db.query(User).filter(User.email == email).first()
+    if user_from_db:
+        user_from_db.password_hash = pwd_hash
+        db.refresh(user_from_db)
+    else:
+        user_object = User(email=email, password_hash=pwd_hash)
+        db.add(user_object)
 
-        cur.execute(
-            """
-            INSERT INTO main.users (email, password_hash) VALUES (%s, %s)
-            ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
-            RETURNING id
-            """,
-            (email, pwd_hash),
-        )
-        user_id = cur.fetchone()[0]
+    db.commit()
 
-        cur.execute(
-            """
-            INSERT INTO main.accounts (user_id, name, currency, created_at)
-            VALUES(%s, %s, 0.0, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (user_id, email, datetime.now(timezone.utc))
-        )
+    new_user = db.query(User).filter(User.email == email).first()
 
-        logger.info("New user was added")
-        #user_id = int(cur.fetchone()[0])
+    account_from_db = db.query(Account).filter(Account.id == new_user.id).first()
+    if account_from_db is None:
+        account = Account(user_id=new_user.id, name=email, currency='BYN', created_at=datetime.now(timezone.utc))
+        db.add(account)
+    db.commit()
 
-    return _issue_pair_and_store(email=email, user_id=int(user_id))
+    logger.info("New user was added")
+    return _issue_pair_and_store(email=email, user_id=new_user.id, db=db)
 
 
 @router.post("/login", response_model=TokensOut, summary="Sign in with email and password")
-def login(body: LoginIn, response : Response):
+def login(body: LoginIn, response : Response, db: Session = Depends(get_db)):
     email = body.email.lower()
     logger.info(f"User with email: {email} is signing in")
 
     logger.debug("Checking the correctness of creds")
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-                SELECT id, password_hash FROM main.users WHERE email = %s
-            """,
-            (email,),
-        )
-        row = cur.fetchone()
-        if not row or not row[1]:
-            raise HTTPException(401, "Incorrect credentials")
-        user_id, pwd_hash = int(row[0]), row[1]
-        if not verify_password(body.password.get_secret_value(), pwd_hash):
-            raise HTTPException(401, "Incorrect credentials")
-    tokens_pair : TokensOut = _issue_pair_and_store(email=email, user_id=user_id)
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise HTTPException(401, "Incorrect credentials")
+    
+    if not verify_password(body.password.get_secret_value(), user.password_hash):
+        raise HTTPException(401, "Incorrect credentials")
+
+    tokens_pair : TokensOut = _issue_pair_and_store(email=email, user_id=user.id, db=db)
     response.set_cookie(auth.config.JWT_ACCESS_COOKIE_NAME, tokens_pair.access_token)
     return tokens_pair
 
 
 @router.post("/refresh", response_model=TokensOut, summary="Update jwt tokens with refresh")
-def refresh_tokens(payload: RefreshIn):
+def refresh_tokens(payload: RefreshIn, db: Session = Depends(get_db)):
     data = _decode_refresh_or_401(payload.refresh_token)
     email: str = data["sub"]
     jti: str | None = data.get("jti")
@@ -257,18 +233,18 @@ def refresh_tokens(payload: RefreshIn):
         logger.exception("Missing jti in refresh token")
         raise HTTPException(401, "Missing jti in refresh token")
 
-    active, user_id = _is_refresh_active(email, payload.refresh_token, jti)
+    active, user_id = _is_refresh_active(email, payload.refresh_token, jti, db)
     if not active or user_id is None:
         logger.exception("Refresh token revoked or expired")
         raise HTTPException(401, "Refresh token revoked or expired")
 
-    _revoke_refresh_by_jti(jti)
+    _revoke_refresh_by_jti(jti, db)
 
-    return _issue_pair_and_store(email=email, user_id=user_id)
+    return _issue_pair_and_store(email=email, user_id=user_id, db=db)
 
 
 @router.post("/logout", summary="Revoke refresh token(logout)")
-def logout(body: LogoutIn):
+def logout(body: LogoutIn, db: Session = Depends(get_db)):
     logger.info("User in trying to logout")
     try:
         data = _decode_refresh_or_401(body.refresh_token)
@@ -277,5 +253,5 @@ def logout(body: LogoutIn):
         return {"Ok": True}
 
     if data.get("type") == "refresh" and "jti" in data:
-        _revoke_refresh_by_jti(data["jti"])
+        _revoke_refresh_by_jti(data["jti"], db)
     return {"ok": True}
