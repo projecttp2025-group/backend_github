@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS main.categories (
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
   CONSTRAINT categories_type_chk
-    CHECK (type IN ('expense', 'income')),
+    CHECK (type IN ('Расход', 'Доход')),
 
   CONSTRAINT u_categories_user_name_type
     UNIQUE (user_id, name, type)

@@ -29,5 +29,5 @@ class ExpenseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ExpenseList(BaseModel):
-    total : int
+    total : Decimal
     items : list[ExpenseRead]

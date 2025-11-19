@@ -5,6 +5,8 @@ from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.logging_config import setup_logging
+from app.db.database import database_engine
+from app.db.models import Base
 
 setup_logging()
 logger = logging.getLogger("app.main")
@@ -28,4 +30,5 @@ def root():
 
 if __name__ == "__main__":
     logger.info("App is started")
+    Base.metadata.create_all(bind=database_engine)
     uvicorn.run("app.main:app", reload=True)

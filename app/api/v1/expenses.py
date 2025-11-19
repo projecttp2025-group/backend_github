@@ -1,10 +1,14 @@
 import logging
 from datetime  import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 import jwt
 from app.core.config import settings
 from app.core.jwt import auth
 from app.db.psycopg import get_connection
+from app.db.database import get_db
+from app.db.models import *
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.schemas.expense import(
     ExpenseCreate,
     ExpenseUpdate,
@@ -16,15 +20,25 @@ router = APIRouter()
 logger = logging.getLogger("app.expenses")
 
 
-@router.get("/expenses", response_model=ExpenseRead, dependencies=[Depends(auth.access_token_required)])
-def get_expenses():
-    return {"Expenses": "OK"}
+@router.get("/expenses", dependencies=[Depends(auth.access_token_required)])
+def get_expenses(account_name: str = Query(), db: Session = Depends(get_db)):
+    logger.info(f"Get list of expenses for account {account_name}")
+    account = db.query(Account).filter(Account.name == account_name).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    expenses_list = db.query(Transaction).filter(Transaction.account_id == account.id).all()
+    if not expenses_list:
+        raise HTTPException(status_code=404, detail="No transactions for this account")
+    
+    total_result = db.query(func.sum(Transaction.amount)).filter(Transaction.account_id == account.id).scalar()
+    result_expenses = ExpenseList(total=total_result, items=expenses_list)
+    return result_expenses
 
 
 @router.post("/expenses", dependencies=[Depends(auth.access_token_required)])
-def create_expense(body : ExpenseCreate, request : Request):   #### HARDCODE значение для category_id
-                                                    #### добавить в SELECT запрос INNER JOIN main.categories ON users.id = categories.user_id 
-
+def create_expense(body : ExpenseCreate, request : Request, db: Session = Depends(get_db)):   
     access_token = request.cookies.get("my-access-token")
     if not access_token:
         raise HTTPException(401, "No access token found in cookie")
@@ -43,33 +57,22 @@ def create_expense(body : ExpenseCreate, request : Request):   #### HARDCODE з�
         raise HTTPException(401, "Not an access token")
     
     email = payload["sub"]
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT users.id, accounts.id FROM main.users INNER JOIN main.accounts ON users.id = accounts.user_id 
-            WHERE users.email = %s
-            """,
-            (email, )
-        )
-        
-        row = cur.fetchone()
-        user_id, account_id = row
+    user_data = db.query(User).join(Account, Account.user_id == User.id).filter(User.email == email).first()
+    category_data = db.query(Category).filter(Category.name == body.category_name).first()
 
-        cur.execute(
-            """
-            INSERT INTO main.transactions
-            (user_id, account_id, category_id, amount, date, description, created_at)
-            VALUES(%s, %s, 2, %s, %s, %s, %s)   
-            """,
-            (user_id, account_id, body.amount, body.date, body.description, datetime.now(timezone.utc))
-        )
+    new_transaction = Transaction(user_id=user_data.id, account_id=user_data.accounts[0].id, category_id=category_data.id,
+                                  amount=body.amount, date=body.date, description=body.description, created_at=datetime.now(timezone.utc))
+    db.add(new_transaction)
+    db.commit()
     logger.info(f"Expense for {email} was created")
     return {"Create expense": "OK"}
 
 
 @router.get("/expenses/{id}", dependencies=[Depends(auth.access_token_required)])
-def get_expense_by_id(id: int):
-    return {f"Get expense for {id}": "OK"}
+def get_expense_by_id(id: int, db: Session = Depends(get_db)):
+    logger.debug(f"Get data of expense with id={id}")
+    expense = db.query(Transaction).filter(Transaction.id == id).first()
+    return expense
 
 
 @router.patch("/expenses/{id}", dependencies=[Depends(auth.access_token_required)])
@@ -78,5 +81,9 @@ def add_expenses(id: int):
 
 
 @router.delete("/expenses/{id}", dependencies=[Depends(auth.access_token_required)])
-def delete_expenses(id: int):
+def delete_expenses(id: int, db: Session = Depends(get_db)):
+    logger.debug(f"Delete expense with id={id}")
+    expense = db.query(Transaction).filter(Transaction.id == id).first()
+    db.delete(expense)
+    db.commit()
     return {f"Delete expense for {id}": "OK"}

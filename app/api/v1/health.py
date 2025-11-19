@@ -1,8 +1,10 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-
 from app.db.psycopg import get_connection
+from app.db.models import *
+from app.db.database import database_engine
+from sqlalchemy import inspect
 
 router = APIRouter()
 logger = logging.getLogger("app.health")
@@ -18,40 +20,18 @@ def health():
 def db_health():
     try:
         logger.debug("Checking DB tables")
-        with get_connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """SELECT
-                  (to_regclass('main.users')    IS NOT NULL) AS users_exists,
-                  (to_regclass('main.accounts') IS NOT NULL) AS accounts_exists,
-                  (to_regclass('main.transactions')    IS NOT NULL) AS transactions_exists,
-                  (to_regclass('main.receipts') IS NOT NULL) AS receipts_exists,
-                  (to_regclass('main.categories')   IS NOT NULL) AS categories_exists,
-                  (to_regclass('main.email_codes') IS NOT NULL) AS email_codes_exists,
-                  (to_regclass('main.refresh_tokens') IS NOT NULL) AS refresh_tokens_exists;
-                  """
-            )
-            row = cur.fetchone()
-            (
-                users_exists,
-                accounts_exists,
-                transactions_exists,
-                receipts_exists,
-                categories_exists,
-                email_codes_exists,
-                refresh_tokens_exists,
-            ) = row
-            logger.info("Database tables exist")
-            return {
-                "schema": "main",
-                "users_exists": bool(users_exists),
-                "accounts_exists": bool(accounts_exists),
-                "transactions_exists": bool(transactions_exists),
-                "receipts_exists": bool(receipts_exists),
-                "categories_exists": bool(categories_exists),
-                "email_codes_exists": bool(email_codes_exists),
-                "refresh_tokens_exists": bool(refresh_tokens_exists),
-            }
+        inspector = inspect(database_engine)
+        tables = inspector.get_table_names(schema='main')
 
+        return {
+            'users_exists': 'users' in tables,
+            'accounts_exists': 'accounts' in tables,
+            'transactions_exists': 'transactions' in tables,
+            'receipts_exists': 'receipts' in tables,
+            'categories_exists': 'categories' in tables,
+            'email_codes_exists': 'email_codes' in tables,
+            'refresh_tokens_exists': 'refresh_tokens' in tables
+        }
     except Exception as ex:
         logger.exception("DB_existing_tables:ERROR")
         raise HTTPException(status_code=500, detail=f"DB check failed: {ex}") from ex
