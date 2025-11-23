@@ -244,7 +244,7 @@ def refresh_tokens(payload: RefreshIn, db: Session = Depends(get_db)):
 
 
 @router.post("/logout", summary="Revoke refresh token(logout)")
-def logout(body: LogoutIn, db: Session = Depends(get_db)):
+def logout(body: LogoutIn, response: Response, db: Session = Depends(get_db)):
     logger.info("User in trying to logout")
     try:
         data = _decode_refresh_or_401(body.refresh_token)
@@ -254,4 +254,5 @@ def logout(body: LogoutIn, db: Session = Depends(get_db)):
 
     if data.get("type") == "refresh" and "jti" in data:
         _revoke_refresh_by_jti(data["jti"], db)
+        response.delete_cookie(key=auth.config.JWT_ACCESS_COOKIE_NAME)
     return {"ok": True}
