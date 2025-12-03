@@ -28,7 +28,7 @@ _env_defaults = {
 for key, value in _env_defaults.items():
     os.environ.setdefault(key, value)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 

@@ -103,11 +103,11 @@ def check_auth_users():
         with get_connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                    SELECT id, email, password_hash, created_at FROM main.users
+                    SELECT id, email, password_hash, created_at, is_admin FROM main.users
                     """
             )
             row = cur.fetchone()
-            id, email, password_hash, created_at = row
+            id, email, password_hash, created_at, is_admin = row
             logger.info("Table 'users' tables exist")
             return {
                 "schema": "main",
@@ -115,6 +115,7 @@ def check_auth_users():
                 "email": email,
                 "password_hash": password_hash,
                 "created_at": created_at,
+                "is_admin": is_admin
             }
 
     except Exception as ex:

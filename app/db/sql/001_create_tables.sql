@@ -2,23 +2,21 @@ BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS main;
 ALTER SCHEMA main OWNER TO admin_finance;
-
 CREATE EXTENSION IF NOT EXISTS citext;
-COMMIT;
 
-BEGIN;
+
 CREATE TABLE IF NOT EXISTS main.users (
   id             SERIAL PRIMARY KEY,
   email          CITEXT NOT NULL,
   password_hash  TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_admin       BOOLEAN DEFAULT FALSE,
 
   CONSTRAINT email_len CHECK (length(email) <= 254),
   CONSTRAINT u_users_email UNIQUE (email)
 );
-COMMIT;
 
-BEGIN;
+
 CREATE TABLE IF NOT EXISTS main.accounts (
   id           SERIAL PRIMARY KEY,
   user_id      INT NOT NULL REFERENCES main.users(id) ON DELETE CASCADE,
@@ -26,9 +24,8 @@ CREATE TABLE IF NOT EXISTS main.accounts (
   currency     CHAR(3)      NOT NULL DEFAULT 'BYN',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-COMMIT;
 
-BEGIN;
+
 CREATE TABLE IF NOT EXISTS main.categories (
   id          SERIAL PRIMARY KEY,
   user_id     INT NOT NULL REFERENCES main.users(id) ON DELETE CASCADE,
@@ -42,9 +39,8 @@ CREATE TABLE IF NOT EXISTS main.categories (
   CONSTRAINT u_categories_user_name_type
     UNIQUE (user_id, name, type)
 );
-COMMIT;
 
-BEGIN;
+
 CREATE TABLE IF NOT EXISTS main.transactions (
   id           SERIAL PRIMARY KEY,
   user_id      INT NOT NULL REFERENCES main.users(id)      ON DELETE CASCADE,
@@ -61,9 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_user_date
 CREATE INDEX IF NOT EXISTS idx_tx_account_date
   ON main.transactions (account_id, date);
 
-COMMIT;
 
-BEGIN;
 CREATE TABLE IF NOT EXISTS main.receipts (
   id               SERIAL PRIMARY KEY,
   user_id          INT NOT NULL REFERENCES main.users(id)        ON DELETE CASCADE, 

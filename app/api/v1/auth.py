@@ -23,7 +23,7 @@ from app.utils.mail_sender import send_code
 from app.utils.security import hash_code, hash_password, sha256, verify_password
 from app.db.models import *
 from app.db.database import get_db
-
+from app.api.exceptions import NoRequestCodeSend, InvalidCredentials
 
 router = APIRouter()
 logger = logging.getLogger("app.auth")
@@ -110,6 +110,7 @@ def request_code(body: EmailIn, db: Session = Depends(get_db)):
         existing_row.code_hash = code_h
         existing_row.expires_at = expires
         existing_row.attempts_left = 5
+        existing_row.used = False
     else:
         email_code = EmailCode(email=email, code_hash=code_h, expires_at=expires)
         db.add(email_code)
@@ -138,16 +139,16 @@ def verify_code(body: CodeVerifyIn, db: Session = Depends(get_db)):
     
     if not email_code:
         logger.exception("Request the code")
-        raise HTTPException(400, "Request the code")
+        raise NoRequestCodeSend("Request the code")
     if email_code.used:
         logger.exception("Code have been used")
-        raise HTTPException(400, "Code have been used")
+        raise NoRequestCodeSend("Code have been used")
     if email_code.expires_at < now:
         logger.exception("The code has expired")
-        raise HTTPException(400, "The code has expired")
+        raise NoRequestCodeSend("The code has expired")
     if email_code.attempts_left <= 0:
         logger.exception("The number of attempts has been exceeded")
-        raise HTTPException(400, "The number of attempts has been exceeded")
+        raise NoRequestCodeSend("The number of attempts has been exceeded")
     if email_code.code_hash != code_h:
         logger.exception("Invalid code")
         email_code.attempts_left -= 1
@@ -213,10 +214,10 @@ def login(body: LoginIn, response : Response, db: Session = Depends(get_db)):
     logger.debug("Checking the correctness of creds")
     user = db.query(User).filter(User.email == email).first()
     if user is None:
-        raise HTTPException(401, "Incorrect credentials")
+        raise InvalidCredentials()
     
     if not verify_password(body.password.get_secret_value(), user.password_hash):
-        raise HTTPException(401, "Incorrect credentials")
+        raise InvalidCredentials()
 
     tokens_pair : TokensOut = _issue_pair_and_store(email=email, user_id=user.id, db=db)
     response.set_cookie(auth.config.JWT_ACCESS_COOKIE_NAME, tokens_pair.access_token)
@@ -244,7 +245,7 @@ def refresh_tokens(payload: RefreshIn, db: Session = Depends(get_db)):
 
 
 @router.post("/logout", summary="Revoke refresh token(logout)")
-def logout(body: LogoutIn, db: Session = Depends(get_db)):
+def logout(body: LogoutIn, response: Response, db: Session = Depends(get_db)):
     logger.info("User in trying to logout")
     try:
         data = _decode_refresh_or_401(body.refresh_token)
@@ -254,4 +255,5 @@ def logout(body: LogoutIn, db: Session = Depends(get_db)):
 
     if data.get("type") == "refresh" and "jti" in data:
         _revoke_refresh_by_jti(data["jti"], db)
+        response.delete_cookie(key=auth.config.JWT_ACCESS_COOKIE_NAME)
     return {"ok": True}

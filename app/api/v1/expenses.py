@@ -15,22 +15,27 @@ from app.schemas.expense import(
     ExpenseRead,
     ExpenseList
 )
+from app.api.exceptions import NoAccessTokenFound, AccountNotFound
 
 router = APIRouter()
 logger = logging.getLogger("app.expenses")
 
 
 @router.get("/expenses", dependencies=[Depends(auth.access_token_required)])
-def get_expenses(account_name: str = Query(), db: Session = Depends(get_db)):
+def get_expenses(request: Request, account_name: str = Query(), db: Session = Depends(get_db)):
+    access_token = request.cookies.get("my-access-token")
+    if not access_token:
+        raise NoAccessTokenFound()
+
     logger.info(f"Get list of expenses for account {account_name}")
     account = db.query(Account).filter(Account.name == account_name).first()
 
     if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise AccountNotFound()
 
     expenses_list = db.query(Transaction).filter(Transaction.account_id == account.id).all()
     if not expenses_list:
-        raise HTTPException(status_code=404, detail="No transactions for this account")
+        raise AccountNotFound("No transactions for this account")
     
     total_result = db.query(func.sum(Transaction.amount)).filter(Transaction.account_id == account.id).scalar()
     result_expenses = ExpenseList(total=total_result, items=expenses_list)
@@ -41,7 +46,7 @@ def get_expenses(account_name: str = Query(), db: Session = Depends(get_db)):
 def create_expense(body : ExpenseCreate, request : Request, db: Session = Depends(get_db)):   
     access_token = request.cookies.get("my-access-token")
     if not access_token:
-        raise HTTPException(401, "No access token found in cookie")
+        raise NoAccessTokenFound()
     
     try:
         payload = jwt.decode(
@@ -69,7 +74,10 @@ def create_expense(body : ExpenseCreate, request : Request, db: Session = Depend
 
 
 @router.get("/expenses/{id}", dependencies=[Depends(auth.access_token_required)])
-def get_expense_by_id(id: int, db: Session = Depends(get_db)):
+def get_expense_by_id(id: int, request: Request, db: Session = Depends(get_db)):
+    access_token = request.cookies.get("my-access-token")
+    if not access_token:
+        raise NoAccessTokenFound()
     logger.debug(f"Get data of expense with id={id}")
     expense = db.query(Transaction).filter(Transaction.id == id).first()
     return expense
@@ -81,7 +89,10 @@ def add_expenses(id: int):
 
 
 @router.delete("/expenses/{id}", dependencies=[Depends(auth.access_token_required)])
-def delete_expenses(id: int, db: Session = Depends(get_db)):
+def delete_expenses(id: int, request: Request, db: Session = Depends(get_db)):
+    access_token = request.cookies.get("my-access-token")
+    if not access_token:
+        raise NoAccessTokenFound()
     logger.debug(f"Delete expense with id={id}")
     expense = db.query(Transaction).filter(Transaction.id == id).first()
     db.delete(expense)

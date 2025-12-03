@@ -13,6 +13,7 @@ class User(Base):
     email = Column(String, nullable=False)
     password_hash = Column(String)
     created_at = Column(DateTime, nullable=False, default=datetime.now())
+    is_admin = Column(Boolean, default=False)
 
     accounts = relationship('Account', back_populates='user')
     categories = relationship("Category", back_populates='user')
