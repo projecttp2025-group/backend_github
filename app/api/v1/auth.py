@@ -87,7 +87,7 @@ def _is_refresh_active(email: str, refresh_token: str, jti: str, db: Session) ->
         return (False, None)
     
     active = False
-    if not refresh_token_object.revoked and refresh_token_object.expires_at > datetime.now():
+    if not refresh_token_object.revoked and refresh_token_object.expires_at > datetime.now(timezone.utc):
         active = True
 
     return (active, refresh_token_object.user_id if active else None)
@@ -225,7 +225,7 @@ def login(body: LoginIn, response : Response, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokensOut, summary="Update jwt tokens with refresh")
-def refresh_tokens(payload: RefreshIn, db: Session = Depends(get_db)):
+def refresh_tokens(payload: RefreshIn, response: Response, db: Session = Depends(get_db)):
     data = _decode_refresh_or_401(payload.refresh_token)
     email: str = data["sub"]
     jti: str | None = data.get("jti")
@@ -241,7 +241,9 @@ def refresh_tokens(payload: RefreshIn, db: Session = Depends(get_db)):
 
     _revoke_refresh_by_jti(jti, db)
 
-    return _issue_pair_and_store(email=email, user_id=user_id, db=db)
+    tokens_pair : TokensOut = _issue_pair_and_store(email=email, user_id=user_id, db=db)
+    response.set_cookie(auth.config.JWT_ACCESS_COOKIE_NAME, tokens_pair.access_token)
+    return tokens_pair
 
 
 @router.post("/logout", summary="Revoke refresh token(logout)")
