@@ -77,3 +77,6 @@ docker/**/tmp/
 
 # --- Type checking / JS tooling (если есть фронт) ---
 node_modules/
+
+# --- Бэкапы ---
+app/db/backups
